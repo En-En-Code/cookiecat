@@ -120,9 +120,9 @@
 
 { Free Pascal compilation options for PowerPC inline bypass; this will generate some warnings }
 
-{$ifdef cpupowerpc}
+{$ifdef CPUPOWERPC}
 {$inline off   Disallow inline routines for PowerPC targets }
-{$endif cpupowerpc}
+{$endif CPUPOWERPC}
 
 program CookieCat;
 
@@ -130,11 +130,11 @@ program CookieCat;
 
     { Needed units }
 
-    SysUtils,   { System utilities }
-
-{$ifdef unix}
+{$ifdef UNIX}
     cthreads,   { Thread utilities (Unix specific) }
-{$endif unix}
+{$endif UNIX}
+
+    SysUtils,   { System utilities }
 
     DateUtils;  { Date/time utilites }
 
