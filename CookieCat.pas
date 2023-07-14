@@ -898,12 +898,43 @@ program CookieCat;
     icpcstag      = 55; { Set PGN tag value }
     icpctest      = 56; { Developer testing }
     icpcttreset   = 57; { Transposition table data reset }
+    icpcxboard    = 58; { Enable xboard mode }
 
     icpcmin = icpcbench;
-    icpcmax = icpcttreset;
+    icpcmax = icpcxboard;
     icpclen = icpcmax - icpcmin + 1;
 
     icpcnil = -1;
+
+    { Xboard commands; must be in ASCII order }
+
+    xcpcaccepted =  0; { Feature request has been approved }
+    xcpcforce    =  1; { Set engine to play on neither side; stop clocks }
+    xcpcgo       =  2; { Start searching and eventually make a move }
+    xcpchint     =  3; { Suggest a move but do not play it }
+    xcpclevel    =  4; { <MPS> <BASE> <INC> Set time controls }
+    xcpcnew      =  5; { Reset board, stop clocks, remove search depth caps, set to Black }
+    xcpcnopost   =  6; { Turn off thinking output }
+    xcpcotim     =  7; { <N> Set opponent's clock to N centiseconds }
+    xcpcping     =  8; { <N> Reply with pong <N> }
+    xcpcpost     =  9; { Turn on thinking output }
+    xcpcprotover = 10; { <N> Respond with the feature list }
+    xcpcremove   = 11; { Retreat move pair }
+    xcpcquit     = 12; { Exit program }
+    xcpcrejected = 13; { Feature request has been rejected }
+    xcpcresult   = 14; { <RESULT> [<Comment>] The game has ended }
+    xcpcsd       = 15; { <DEPTH> Limit thinking to DEPTH ply }
+    xcpcsetboard = 16; { <FEN> Set board to FEN }
+    xcpcst       = 17; { <SEC> Set the maximum time to move }
+    xcpctime     = 18; { <N> Set CookieCat's clock to N centiseconds }
+    xcpcundo     = 19; { Retreat move }
+    xcpcxboard   = 20; { Enable xboard mode }
+
+    xcpcmin = xcpcaccepted;
+    xcpcmax = xcpcxboard;
+    xcpclen = xcpcmax - xcpcmin + 1;
+
+    xcpcnil = -1;
 
   type
 
@@ -1851,6 +1882,19 @@ program CookieCat;
         icpc: icpcxtype { Command to be processed }
       end;
 
+    { Xboard commands }
+
+    xcpctype  = xcpcmin..xcpcmax;
+    xcpcxtype = xcpcnil..xcpcmax;
+
+    { Command processor: Xboard }
+
+    xcptype =
+      record
+        cpc:  cpctype;   { The command processing context for this command processor }
+        xcpc: xcpcxtype; { Command to be processed }
+      end;
+
     { Command processor: SCI } {TBD}
 
     scptype =
@@ -2107,6 +2151,10 @@ program CookieCat;
 
     icpcnames: array [icpctype] of String; { Command verbs for an ICP }
     icpchelps: array [icpctype] of String; { Command help strings for an ICP }
+
+    { Xboard command processer items }
+
+    xcpcnames: array [xcpctype] of String; { Command verbs for Xboard }
 
   procedure AvoidSomeCompilerWarnings;
   begin
@@ -13755,6 +13803,15 @@ program CookieCat;
         SscTTReset(sscptrvec[0]^) {TBD}
   end; { IcpDoCttreset }
 
+  procedure IcpDoCxboard(var icp: icptype);
+  begin
+    with icp, cpc do
+      if ctlist.ecount <> (1 + 0) then
+        IcpUserErrorNoParms(icp)
+      else
+        IcpUserError(icp, 'Not yet implemented')
+  end; { IcpDoCxboard }
+
   procedure IcpDispatch(var icp: icptype);
   begin
     case icp.icpc of
@@ -13815,7 +13872,8 @@ program CookieCat;
       icpcslevut:    IcpDoCslevut(icp);
       icpcstag:      IcpDoCstag(icp);
       icpctest:      IcpDoCtest(icp);
-      icpcttreset:   IcpDoCttreset(icp)
+      icpcttreset:   IcpDoCttreset(icp);
+      icpcxboard:    IcpDoCXboard(icp)
     end { case }
   end; { IcpDispatch }
 
@@ -13909,6 +13967,13 @@ program CookieCat;
      with icp do
       CpcTerm(cpc)
   end; { IcpTerm }
+
+  { ***** Xboard Chess Interface command processor routines ***** }
+
+  procedure XcpInit(var xcp: xcptype);
+  begin
+
+  end; { XcpInit }
 
   { ***** Simplified Chess Interface command processor routines ***** }
 
@@ -15806,6 +15871,7 @@ program CookieCat;
         icpcnames[icpcstag]      := 'stag';
         icpcnames[icpctest]      := 'test';
         icpcnames[icpcttreset]   := 'ttreset';
+        icpcnames[icpcxboard]    := 'xboard';
 
         { Initialize the ICP command help strings }
 
@@ -15866,9 +15932,34 @@ program CookieCat;
         icpchelps[icpcslevut]    := 'Set level unlimited time';
         icpchelps[icpcstag]      := 'Set PGN <tagname> to <tagvalue>';
         icpchelps[icpctest]      := 'Run developer test';
-        icpchelps[icpcttreset]   := 'Transposition table data reset'
+        icpchelps[icpcttreset]   := 'Transposition table data reset';
+        icpchelps[icpcxboard]    := 'Switch to the xboard command interface'
 
       end; { InitializeIcpCommandStrings }
+
+      procedure InitializeXcpCommandStrings;
+      begin
+        xcpcnames[xcpcaccepted] := 'accepted';
+        xcpcnames[xcpcforce]    := 'force';
+        xcpcnames[xcpcgo]       := 'go';
+        xcpcnames[xcpchint]     := 'hint';
+        xcpcnames[xcpclevel]    := 'level';
+        xcpcnames[xcpcnew]      := 'new';
+        xcpcnames[xcpcnopost]   := 'nopost';
+        xcpcnames[xcpcotim]     := 'otim';
+        xcpcnames[xcpcping]     := 'ping';
+        xcpcnames[xcpcpost]     := 'post';
+        xcpcnames[xcpcprotover] := 'protover';
+        xcpcnames[xcpcremove]   := 'remove';
+        xcpcnames[xcpcquit]     := 'quit';
+        xcpcnames[xcpcrejected] := 'rejected';
+        xcpcnames[xcpcsd]       := 'sd';
+        xcpcnames[xcpcsetboard] := 'setboard';
+        xcpcnames[xcpcst]       := 'st';
+        xcpcnames[xcpctime]     := 'time';
+        xcpcnames[xcpcundo]     := 'undo';
+        xcpcnames[xcpcxboard]   := 'xboard'
+      end; { InitializeXcpCommandStrings }
 
       procedure InitializeScpCommandStrings;
       begin
@@ -15877,7 +15968,8 @@ program CookieCat;
 
     begin
       InitializeIcpCommandStrings;
-      InitializeScpCommandStrings
+      InitializeXcpCommandStrings;
+      InitializeScpCommandStrings;
     end; { InitializeCommandStrings }
 
   begin
@@ -15942,6 +16034,15 @@ program CookieCat;
     WriteStrNL(Output, progname + ' done')
 
   end; { DriveIcp }
+
+  procedure DriveXcp;
+    var
+      xcpptr: ^xcptype;
+  begin
+    New(xcpptr);
+    { TODO }
+    Dispose(xcpptr);
+  end; { DriveXcp }
 
   procedure DriveScp;
     var
