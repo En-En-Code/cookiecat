@@ -957,6 +957,32 @@ program CookieCat;
     digittype    = 0..9;
     hexdigittype = 0..15;
 
+    { Optionally unsigned integer types }
+
+    type oui8type = record
+      case oui8: (someui8type, noneui8type) of
+        someui8type: (ui8: ui8type);
+        noneui8type: ()
+    end;
+
+    type oui16type = record
+      case oui16: (someui16type, noneui16type) of
+        someui16type: (ui16: ui16type);
+        noneui16type: ()
+    end;
+
+    type oui32type = record
+      case oui32: (someui32type, noneui32type) of
+        someui32type: (ui32: ui32type);
+        noneui32type: ()
+    end;
+
+    type oui64type = record
+      case oui64: (someui64type, noneui64type) of
+        someui16type: (ui64: ui64type);
+        noneui16type: ()
+    end;
+
     { Microseconds }
 
     usectype = si64type; { Note: signed quanity }
@@ -1769,20 +1795,19 @@ program CookieCat;
 
     iirvectype = array [itertype] of iirtype;
 
-    { Search resource limit flavor }
+    { Search limiter flavors }
 
-    srlftype = (srlfiter, srlfnode, srlfftim, srlfmtim, srlfnone);
+    slftype = (slfdepth, slfnodes, slfftime, slfmtime);
 
-    { Search resource limit }
+    { Search limiter }
 
-    srltype =
+    sltype =
       record
-        case srlf: srlftype of
-          srlfiter: (limititer: Integer);  { Iteration limit }
-          srlfnode: (limitnode: nctype);   { Node count limit }
-          srlfftim: (limitftim: usectype); { Fixed microsecond limit }
-          srlfmtim: (limitmtim: usectype); { Mean microsecond limit }
-          srlfnone: ()                     { No limit }
+        slf: set of slftype;
+        limitdepth: Integer;  { Iteration limit }
+        limitnodes: nctype;   { Node count limit }
+        limitftime: usectype; { Fixed microsecond limit }
+        limitmtime: usectype; { Mean microsecond limit }
       end;
 
     { Tablebase byte score }
@@ -1831,7 +1856,7 @@ program CookieCat;
         isleftmost: Boolean;        { Set only for leftmost branch }
         currpos:    postype;        { Current position }
         currvar:    variationtype;  { Current variation }
-        srl:        srltype;        { Search resource limit }
+        sl:         sltype;         { Search limiter }
         priorpv:    variationtype;  { Predicted variation from the prior iteration }
         predsv:     svtype;         { Result: predicted score }
         predvar:    variationtype;  { Result: predicted variation }
@@ -3113,60 +3138,121 @@ program CookieCat;
     DecodeDigit := Ord(ch) - Ord('0')
   end; { DecodeDigit }
 
-  function IsStringAllDigits(str: String): Boolean;
+  function DecodeUi8Type(str: String): oui8type;
     var
-      myresult: Boolean;
-      index, limit: Integer;
+      myresult: oui8type;
+      index, limit, digit: Integer;
   begin
-    limit := Length(str);
-    if limit = 0 then
-      myresult := False
-    else
+    with myresult do
       begin
-        myresult := True;
-        index := 0;
-        while myresult and (index < limit) do
-          if IsCharDigit(str[index + 1]) then
-            Inc(index)
-          else
-            myresult := False
+        oui8 := someui8type;
+        ui8 := 0;
+        index := 1;
+        limit := Length(str);
+        while (index <= limit) and (oui8 = someui8type) do
+          begin
+            if IsCharDigit(str[index]) then
+              begin
+                digit := DecodeDigit(str[index]);
+                if (ui8 > 25) or ((ui8 = 25) and (digit > 5)) then
+                  oui8 := noneui8type
+                else
+                  ui8 := (ui8 * 10) + digit
+              end
+            else
+              oui8 := noneui8type;
+            index := index + 1
+          end
       end;
-    IsStringAllDigits := myresult
-  end; { IsStringAllDigits }
+    DecodeUi8Type := myresult
+  end; { DecodeUi8Type }
 
-  function IsStringUnsignedInteger(str: String): Boolean;
-  begin
-    IsStringUnsignedInteger := IsStringAllDigits(str) {TBD}
-  end; { IsStringUnsignedInteger }
-
-  function DecodeUnsignedInteger(str: String): Integer;
+  function DecodeUi16Type(str: String): oui16type;
     var
-      myresult: Integer;
-      index, limit: Integer;
+      myresult: oui16type;
+      index, limit, digit: Integer;
   begin
-    myresult := 0;
-    limit := Length(str);
-    for index := 0 to limit - 1 do
-      myresult := (myresult * 10) + DecodeDigit(str[index + 1]);
-    DecodeUnsignedInteger := myresult
-  end; { DecodeUnsignedInteger }
+    with myresult do
+      begin
+        oui16 := someui16type;
+        ui16 := 0;
+        index := 1;
+        limit := Length(str);
+        while (index <= limit) and (oui16 = someui16type) do
+          begin
+            if IsCharDigit(str[index]) then
+              begin
+                digit := DecodeDigit(str[index]);
+                if (ui16 > 6553) or ((ui16 = 6553) and (digit > 5)) then
+                  oui16 := noneui16type
+                else
+                  ui16 := (ui16 * 10) + digit
+              end
+            else
+              oui16 := noneui16type;
+            index := index + 1
+          end
+      end;
+    DecodeUi16Type := myresult
+  end; { DecodeUi16Type }
 
-  function IsStringUi32Type(str: String): Boolean;
-  begin
-    IsStringUi32Type := IsStringAllDigits(str) {TBD}
-  end; { IsStringUi32Type }
-
-  function DecodeUi32Type(str: String): si32type;
+  function DecodeUi32Type(str: String): oui32type;
     var
-      myresult: ui32type;
-      index, limit: Integer;
+      myresult: oui32type;
+      index, limit, digit: Integer;
   begin
-    myresult := 0;
-    limit := Length(str);
-    for index := 0 to limit - 1 do
-      myresult := (myresult * 10) + DecodeDigit(str[index + 1]);
+    with myresult do
+      begin
+        oui32 := someui32type;
+        ui32 := 0;
+        index := 1;
+        limit := Length(str);
+        while (index <= limit) and (oui32 = someui32type) do
+          begin
+            if IsCharDigit(str[index]) then
+              begin
+                digit := DecodeDigit(str[index]);
+                if (ui32 > 429496729) or ((ui32 = 429496729) and (digit > 5)) then
+                  oui32 := noneui32type
+                else
+                  ui32 := (ui32 * 10) + digit
+              end
+            else
+              oui32 := noneui32type;
+            index := index + 1
+          end
+      end;
     DecodeUi32Type := myresult
   end; { DecodeUi32Type }
+
+  function DecodeUi64Type(str: String): oui64type;
+    var
+      myresult: oui64type;
+      index, limit, digit: Integer;
+  begin
+    with myresult do
+      begin
+        oui64 := someui64type;
+        ui64 := 0;
+        index := 1;
+        limit := Length(str);
+        while (index <= limit) and (oui64 = someui64type) do
+          begin
+            if IsCharDigit(str[index]) then
+              begin
+                digit := DecodeDigit(str[index]);
+                if (ui64 > 1844674407370955161) or ((ui64 = 1844674407370955161) and (digit > 5)) then
+                  oui64 := noneui64type
+                else
+                  ui64 := (ui64 * 10) + digit
+              end
+            else
+              oui64 := noneui64type;
+            index := index + 1
+          end
+      end;
+    DecodeUi64Type := myresult
+  end; { DecodeUi64Type }
 
   { ***** Simple decoding routines (chess specific) ***** }
 
@@ -9068,14 +9154,19 @@ program CookieCat;
       begin
         tokenstr := tokenptr^.tstr;
         tokenptr := tokenptr^.next;
-        if not IsStringUnsignedInteger(tokenstr) then
-          myresult := False
-        else
+        with DecodeUi16Type(tokenstr) do
           begin
-            hmvc := DecodeUnsignedInteger(tokenstr);
-            if (hmvc > 0) and (epsq <> sqnil) then
-              myresult := False
-          end
+            case oui16 of
+              someui16type:
+                begin
+                  hmvc := ui16;
+                  if (hmvc > 0) and (epsq <> sqnil) then
+                    myresult := False;
+                end;
+              noneui16type:
+                myresult := False;
+            end { case }
+          end;
       end;
 
     { Fmvn token }
@@ -9084,14 +9175,19 @@ program CookieCat;
       begin
         tokenstr := tokenptr^.tstr;
         tokenptr := tokenptr^.next;
-        if not IsStringUnsignedInteger(tokenstr) then
-          myresult := False
-        else
+        with DecodeUi16Type(tokenstr) do
           begin
-            fmvn := DecodeUnsignedInteger(tokenstr);
-            if fmvn < 1 then
-              myresult := False
-          end
+            case oui16 of
+              someui16type:
+                begin
+                  fmvn := ui16;
+                  if fmvn < 1 then
+                    myresult := False;
+                end;
+              noneui16type:
+                myresult := False;
+            end { case }
+          end;
       end;
 
     if myresult then
@@ -9154,7 +9250,7 @@ program CookieCat;
     PosPerftTask := 0
   end; { PosPerftTask }
 
-  function PosPerftTaskDriver(var pos: postype; limit: Integer; printflag: Boolean): nctype;
+  function PosPerftTaskDriver(var pos: postype; limit: ui16type; printflag: Boolean): nctype;
     var
       myresult: nctype;
       corecount, activecount: Integer;
@@ -10715,49 +10811,70 @@ program CookieCat;
       IirTerm(iirvec[iter])
   end; { IirVecTerm }
 
-  { ***** Search resource limit routines ***** }
+  { ***** Search limiter routines ***** }
 
-  procedure SrlSetNone(var srl: srltype);
+  procedure SlRmlDepth(var sl: sltype);
   begin
-    with srl do
-      srlf := srlfnone
-  end; { SrlSetNone }
+    with sl do
+      Exclude(slf, slfdepth)
+  end; { SlRmlDepth }
 
-  procedure SrlSetIter(var srl: srltype; limit: Integer);
+  procedure SlSetDepth(var sl: sltype; limit: Integer);
   begin
-    with srl do
+    with sl do
       begin
-        srlf := srlfiter;
-        limititer := limit
+        Include(slf, slfdepth);
+        limitdepth := limit
       end
-  end; { SrlSetIter }
+  end; { SlSetDepth }
 
-  procedure SrlSetNode(var srl: srltype; limit: nctype);
+  procedure SlRmlNodes(var sl: sltype);
   begin
-    with srl do
-      begin
-        srlf := srlfnode;
-        limitnode := limit
-      end
-  end; { SrlSetNode }
+    with sl do
+      Exclude(slf, slfnodes);
+  end; { SlRmlNodes }
 
-  procedure SrlSetFtim(var srl: srltype; limit: usectype);
+  procedure SlSetNodes(var sl: sltype; limit: nctype);
   begin
-    with srl do
+    with sl do
       begin
-        srlf := srlfftim;
-        limitftim := limit
+        Include(slf, slfnodes);
+        limitnodes := limit
       end
-  end; { SrlSetFtim }
+  end; { SlSetNodes }
 
-  procedure SrlSetMtim(var srl: srltype; limit: usectype);
+  procedure SlRmlTimes(var sl: sltype);
   begin
-    with srl do
+    with sl do
       begin
-        srlf := srlfmtim;
-        limitmtim := limit
+        Exclude(slf, slfftime);
+        Exclude(slf, slfmtime);
+      end;
+  end; { SlRmlTimes }
+
+  procedure SlSetFtime(var sl: sltype; limit: usectype);
+  begin
+    with sl do
+      begin
+        Include(slf, slfftime);
+        limitftime := limit
       end
-  end; { SrlSetMtim }
+  end; { SlSetFtime }
+
+  procedure SlSetMtime(var sl: sltype; limit: usectype);
+  begin
+    with sl do
+      begin
+        Include(slf, slfmtime);
+        limitmtime := limit
+      end
+  end; { SlSetMtime }
+
+  procedure SlRmlAll(var sl: sltype);
+  begin
+    with sl do
+      slf := []
+  end; { SlRmlAll }
 
   { ***** EPD value node routines ***** }
 
@@ -11088,8 +11205,6 @@ program CookieCat;
         WindowSetFullWidth(rootwindow);
         PosReset(currpos);
         VariationRecycle(currvar);
-        {SrlSetFtim(srl, (5 * 1000000));}
-        SrlSetNode(srl, 1000000);
         VariationRecycle(priorpv);
         predsv := svbroken;
         VariationRecycle(predvar);
@@ -11116,6 +11231,7 @@ program CookieCat;
         ttmainptr := TTMainNew;
         ttpawnptr := TTPawnNew;
         TbWranglerInit(tbwrangler);
+        SlRmlAll(sl);
         SscReset(ssc)
       end
   end; { SscInit }
@@ -11917,16 +12033,15 @@ program CookieCat;
           procedure SpookyLimitTestNode;
           begin
             if iter > 0 then
-              with ssc, srl do
-                case srlf of
-                  srlfnode:
-                    if nodecount >= limitnode then
-                      SscStop(ssc, stlimitnode);
-                  srlfftim:
+              with ssc, sl do
+                begin
+                  if (slfnodes in slf) and (nodecount >= limitnodes) then
+                    SscStop(ssc, stlimitnode);
+                  if slfftime in slf then
                     if (nodecount mod 1024) = 0 then
-                      if TimerCurrent(ssctimer) >= limitftim then
-                        SscStop(ssc, stlimittime);
-                end { case }
+                      if TimerCurrent(ssctimer) >= limitftime then
+                        SscStop(ssc, stlimittime)
+                end
           end; { SpookyLimitTestNode }
 
           procedure SpookyMovePick;
@@ -12359,6 +12474,12 @@ program CookieCat;
                 if IsSvLosing(iirvec[iter].sv) and IsSvLosing(iirvec[iter - 1].sv) then
                   SscStop(ssc, stforcedlose);
 
+              { Stop searching at the depth limit }
+
+              with sl do
+                if SscIsGoing(ssc) and (slfdepth in slf) and (iter >= limitdepth) then
+                  SscStop(ssc, stlimitdepth);
+
               { Next iteration }
 
               Inc(iter)
@@ -12682,29 +12803,32 @@ program CookieCat;
       else
         begin
           tokenptr := ctlist.head^.next;
-          if not IsStringUnsignedInteger(tokenptr^.tstr) then
-            IcpUserError(icp, 'Parameter must be an unsigned integer')
-          else
-            begin
-              depth := DecodeUnsignedInteger(tokenptr^.tstr);
-              if optntrif in cpcoptnset then
+          with DecodeUi8Type(tokenptr^.tstr) do
+            case oui8 of
+              noneui8type:
+                IcpUserError(icp, 'Parameter must be an 8-bit unsigned integer');
+              someui8type:
                 begin
-                  WritePrefix(ofile, 'if');
-                  WriteStrNL(ofile, PosEncode(cpcpos))
+                  depth := ui8;
+                  if optntrif in cpcoptnset then
+                    begin
+                      WritePrefix(ofile, 'if');
+                      WriteStrNL(ofile, PosEncode(cpcpos))
+                    end;
+                  TimerResetThenStart(tasktimer);
+                  case perft of
+                    perftbulk: pathcount := PosPerftBulk(cpcpos, ofile, depth, True);
+                    perftfull: pathcount := PosPerftFull(cpcpos, ofile, depth, True);
+                    perfttran: pathcount := PosPerftTran(cpcpos, ofile, depth, True)
+                  end; { case }
+                  TimerStop(tasktimer);
+                  if optntrts in cpcoptnset then
+                    begin
+                      WritePrefix(ofile, 'ts');
+                      WriteStrNL(ofile, EncodeCT(pathcount, TimerCurrent(tasktimer)))
+                    end
                 end;
-              TimerResetThenStart(tasktimer);
-              case perft of
-                perftbulk: pathcount := PosPerftBulk(cpcpos, ofile, depth, True);
-                perftfull: pathcount := PosPerftFull(cpcpos, ofile, depth, True);
-                perfttran: pathcount := PosPerftTran(cpcpos, ofile, depth, True)
-              end; { case }
-              TimerStop(tasktimer);
-              if optntrts in cpcoptnset then
-                begin
-                  WritePrefix(ofile, 'ts');
-                  WriteStrNL(ofile, EncodeCT(pathcount, TimerCurrent(tasktimer)))
-                end
-            end
+            end { case }
         end
   end; { IcpPerft }
 
@@ -12996,54 +13120,59 @@ program CookieCat;
         begin
           t1ptr := ctlist.head^.next;
           t2ptr := t1ptr^.next;
-          if not IsStringUnsignedInteger(t2ptr^.tstr) then
-            IcpUserError(icp, 'Second parameter must be an unsigned integer')
-          else
+          with DecodeUi8Type(t2ptr^.tstr) do
             begin
-              nofault := True;
-              opened := False;
-              PosInit(altpos);
-              fmvc := DecodeUnsignedInteger(t2ptr^.tstr);
-              Assign(fenfile, t1ptr^.tstr);
-              if nofault then
-                begin
-                  Reset(fenfile);
-                  if IOResult <> 0 then
-                    begin
-                      IcpUserError(icp, 'I/O fault: Reset failure');
-                      nofault := False
-                    end
-                  else
-                    opened := True;
-                end;
-              count := 0;
-              TimerResetThenStart(tasktimer);
-
-              repeat
-                ReadLn(fenfile, str);
-                PosDecode(altpos, str);
-                SscReadySet(sscptrvec[0]^, cpcoptnset, altpos, mgmnotated); {TBD}
-                SmokeyFindMate(sscptrvec[0]^, fmvc);
-                if optntrea in cpcoptnset then
+              case oui8 of
+                noneui8type:
+                  IcpUserError(icp, 'Second parameter must be an 8-bit unsigned integer');
+                someui8type:
                   begin
-                    EpdInit(epd);
-                    EpdLoadFromSsc(epd, sscptrvec[0]^);
-                    WritePrefix(ofile, 'ea');
-                    WriteStrNL(ofile, EpdEncode(epd));
-                    EpdTerm(epd)
-                  end;
-                Inc(count)
-              until not nofault or eof(fenfile);
+                    nofault := True;
+                    opened := False;
+                    PosInit(altpos);
+                    fmvc := ui8;
+                    Assign(fenfile, t1ptr^.tstr);
+                    if nofault then
+                      begin
+                        Reset(fenfile);
+                        if IOResult <> 0 then
+                          begin
+                            IcpUserError(icp, 'I/O fault: Reset failure');
+                            nofault := False
+                          end
+                        else
+                          opened := True;
+                      end;
+                    count := 0;
+                    TimerResetThenStart(tasktimer);
 
-              TimerStop(tasktimer);
-              if optntrts in cpcoptnset then
-                begin
-                  WritePrefix(ofile, 'ts');
-                  WriteStrNL(ofile, EncodeCT(count, TimerCurrent(tasktimer)))
-                end;
-              if opened then
-                Close(fenfile);
-              PosTerm(altpos)
+                    repeat
+                      ReadLn(fenfile, str);
+                      PosDecode(altpos, str);
+                      SscReadySet(sscptrvec[0]^, cpcoptnset, altpos, mgmnotated); {TBD}
+                      SmokeyFindMate(sscptrvec[0]^, fmvc);
+                      if optntrea in cpcoptnset then
+                        begin
+                          EpdInit(epd);
+                          EpdLoadFromSsc(epd, sscptrvec[0]^);
+                          WritePrefix(ofile, 'ea');
+                          WriteStrNL(ofile, EpdEncode(epd));
+                          EpdTerm(epd)
+                        end;
+                      Inc(count)
+                    until not nofault or eof(fenfile);
+
+                    TimerStop(tasktimer);
+                    if optntrts in cpcoptnset then
+                      begin
+                        WritePrefix(ofile, 'ts');
+                        WriteStrNL(ofile, EncodeCT(count, TimerCurrent(tasktimer)))
+                      end;
+                    if opened then
+                      Close(fenfile);
+                    PosTerm(altpos)
+                  end;
+              end { case }
             end
         end
   end; { IcpDoCffmate }
@@ -13137,45 +13266,50 @@ program CookieCat;
         begin
           t1ptr := ctlist.head^.next;
           t2ptr := t1ptr^.next;
-          if not IsStringUnsignedInteger(t2ptr^.tstr) then
-            IcpUserError(icp, 'Second parameter must be an unsigned integer')
-          else
+          with DecodeUi8Type(t2ptr^.tstr) do
             begin
-              nofault := True;
-              opened := False;
-              PosInit(altpos);
-              depth := DecodeUnsignedInteger(t2ptr^.tstr);
-              sum := 0;
-              Assign(fenfile, t1ptr^.tstr);
-              if nofault then
-                begin
-                  Reset(fenfile);
-                  if IOResult <> 0 then
-                    begin
-                      IcpUserError(icp, 'I/O fault: Reset failure');
-                      nofault := False
-                    end
-                  else
-                    opened := True;
-                end;
-              TimerResetThenStart(tasktimer);
+              case oui8 of
+                noneui8type:
+                  IcpUserError(icp, 'Second parameter must be an 8-bit unsigned integer');
+                someui8type:
+                  begin
+                    nofault := True;
+                    opened := False;
+                    PosInit(altpos);
+                    depth := ui8;
+                    sum := 0;
+                    Assign(fenfile, t1ptr^.tstr);
+                    if nofault then
+                      begin
+                        Reset(fenfile);
+                        if IOResult <> 0 then
+                          begin
+                            IcpUserError(icp, 'I/O fault: Reset failure');
+                            nofault := False
+                          end
+                        else
+                          opened := True;
+                      end;
+                    TimerResetThenStart(tasktimer);
 
-              repeat
-                ReadLn(fenfile, str);
-                PosDecode(altpos, str);
-                subsum := PosPerftTran(altpos, ofile, depth, False);
-                Inc(sum, subsum)
-              until not nofault or eof(fenfile);
+                    repeat
+                      ReadLn(fenfile, str);
+                      PosDecode(altpos, str);
+                      subsum := PosPerftTran(altpos, ofile, depth, False);
+                      Inc(sum, subsum)
+                    until not nofault or eof(fenfile);
 
-              TimerStop(tasktimer);
-              if optntrts in cpcoptnset then
-                begin
-                  WritePrefix(ofile, 'ts');
-                  WriteStrNL(ofile, EncodeCT(sum, TimerCurrent(tasktimer)))
-                end;
-              if opened then
-                Close(fenfile);
-              PosTerm(altpos)
+                    TimerStop(tasktimer);
+                    if optntrts in cpcoptnset then
+                      begin
+                        WritePrefix(ofile, 'ts');
+                        WriteStrNL(ofile, EncodeCT(sum, TimerCurrent(tasktimer)))
+                      end;
+                    if opened then
+                      Close(fenfile);
+                    PosTerm(altpos)
+                  end;
+              end { case }
             end
         end
   end; { IcpDoCffperft }
@@ -13305,7 +13439,7 @@ program CookieCat;
   procedure IcpDoCmate(var icp: icptype);
   var
     tokenptr: tokenptrtype;
-    fmvc0, fmvn1: Integer;
+    fmvc0, fmvn1: ui16type;
     epd: epdtype;
   begin
     with icp, cpc do
@@ -13314,53 +13448,58 @@ program CookieCat;
       else
         begin
           tokenptr := ctlist.head^.next;
-          if not IsStringUnsignedInteger(tokenptr^.tstr) then
-            IcpUserError(icp, 'Parameter must be an unsigned integer')
-          else
+          with DecodeUi8Type(tokenptr^.tstr) do
             begin
-              fmvc0 := DecodeUnsignedInteger(tokenptr^.tstr);
-              if (fmvc0 < 1) or (fmvc0 >= (plylen div 2)) then
-                IcpUserError(icp, 'Out of range')
-              else
-                if PosHasNoMoves(cpcpos) then
-                  IcpUserError(icp, 'No moves')
-                else
-                  begin {TBD}
-                    SscReadySet(sscptrvec[0]^, cpcoptnset, cpcpos, mgmnotated);
-                    SmokeyFindMate(sscptrvec[0]^, fmvc0);
-                    with sscptrvec[0]^ do
-                      begin
-                        if not IsSvMating(predsv) then
-                          WriteStrNL(ofile, 'No mate found')
-                        else
-                          begin
-                            fmvn1 := CalcMatingDistance(predsv);
-                            WriteStrNL(ofile, 'Found mate in ' + EncodeInteger(fmvn1));
-                            WriteStrNL(ofile, 'PV: ' + VariationPosEncode(predvar, cpcpos))
-                          end;
-                        if optntrts in cpcoptnset then
-                          begin
-                            WritePrefix(ofile, 'ts');
-                            WriteStrNL(ofile, EncodeCT(nodecount, TimerCurrent(ssctimer)))
-                          end;
-                        if optntrea in cpcoptnset then
-                          begin
-                            EpdInit(epd);
-                            EpdLoadFromSsc(epd, sscptrvec[0]^);
-                            WritePrefix(ofile, 'ea');
-                            WriteStrNL(ofile, EpdEncode(epd));
-                            EpdTerm(epd)
-                          end;
-                      end
-                  end
-            end
+              case oui8 of
+                noneui8type:
+                  IcpUserError(icp, 'Parameter must be an 8-bit unsigned integer');
+                someui8type:
+                  begin
+                    fmvc0 := ui8;
+                    if (fmvc0 < 1) or (fmvc0 >= (plylen div 2)) then
+                      IcpUserError(icp, 'Out of range')
+                    else
+                      if PosHasNoMoves(cpcpos) then
+                        IcpUserError(icp, 'No moves')
+                      else
+                        begin { TBD }
+                          SscReadySet(sscptrvec[0]^, cpcoptnset, cpcpos, mgmnotated);
+                          SmokeyFindMate(sscptrvec[0]^, fmvc0);
+                          with sscptrvec[0]^ do
+                            begin
+                              if not IsSvMating(predsv) then
+                                WriteStrNL(ofile, 'No mate found')
+                              else
+                                begin
+                                  fmvn1 := CalcMatingDistance(predsv);
+                                  WriteStrNL(ofile, 'Found mate in ' + EncodeInteger(fmvn1));
+                                  WriteStrNL(ofile, 'PV: ' + VariationPosEncode(predvar, cpcpos))
+                                end;
+                              if optntrts in cpcoptnset then
+                                begin
+                                  WritePrefix(ofile, 'ts');
+                                  WriteStrNL(ofile, EncodeCT(nodecount, TimerCurrent(ssctimer)))
+                                end;
+                              if optntrea in cpcoptnset then
+                                begin
+                                  EpdInit(epd);
+                                  EpdLoadFromSsc(epd, sscptrvec[0]^);
+                                  WritePrefix(ofile, 'ea');
+                                  WriteStrNL(ofile, EpdEncode(epd));
+                                  EpdTerm(epd)
+                                end;
+                            end
+                        end
+                  end;
+              end; { case }
+          end
         end
   end; { IcpDoCmate }
 
   procedure IcpDoCmtperft(var icp: icptype);
     var
       tokenptr: tokenptrtype;
-      limit: Integer;
+      limit: ui16type;
       tasktimer: timertype;
       nc: nctype;
   begin
@@ -13370,25 +13509,30 @@ program CookieCat;
       else
         begin
           tokenptr := ctlist.head^.next;
-          if not IsStringUnsignedInteger(tokenptr^.tstr) then
-            IcpUserError(icp, 'Parameter must be an unsigned integer')
-          else
+          with DecodeUi8Type(tokenptr^.tstr) do
             begin
-              limit := DecodeUnsignedInteger(tokenptr^.tstr);
-              if limit < 1 then
-                IcpUserError(icp, 'Parameter must be a positive integer')
-              else
-                begin
-                  TimerResetThenStart(tasktimer);
-                  nc := PosPerftTaskDriver(cpcpos, limit, True);
-                  if optntrts in cpcoptnset then
-                    begin
-                      WritePrefix(ofile, 'ts');
-                      WriteStrNL(ofile, EncodeCT(nc, TimerCurrent(tasktimer)))
-                    end
-                end
+              case oui8 of
+                noneui8type:
+                  IcpUserError(icp, 'Parameter must be an 8-bit unsigned integer');
+                someui8type:
+                  begin
+                    limit := ui8;
+                    if limit < 1 then
+                      IcpUserError(icp, 'Parameter must be a positive integer')
+                    else
+                      begin
+                        TimerResetThenStart(tasktimer);
+                        nc := PosPerftTaskDriver(cpcpos, limit, True);
+                        if optntrts in cpcoptnset then
+                          begin
+                            WritePrefix(ofile, 'ts');
+                            WriteStrNL(ofile, EncodeCT(nc, TimerCurrent(tasktimer)))
+                          end
+                      end
+                  end;
+              end { case }
             end
-        end
+      end
   end; { IcpDoCmtperft }
 
   procedure IcpDoCnew(var icp: icptype);
@@ -13485,52 +13629,57 @@ program CookieCat;
         begin
           t1ptr := ctlist.head^.next;
           t2ptr := t1ptr^.next;
-          if not IsStringUi32Type(t2ptr^.tstr) then
-            IcpUserError(icp, 'Second parameter must be an unsigned integer')
-          else
+          with DecodeUi32Type(t2ptr^.tstr) do
             begin
-              nofault := True;
-              opened := False;
-              limit := DecodeUi32Type(t2ptr^.tstr);
-              Assign(pgnfile, t1ptr^.tstr);
-              if nofault then
-                begin
-                  Rewrite(pgnfile);
-                  if IOResult <> 0 then
-                    begin
-                      IcpUserError(icp, 'I/O fault: Rewrite failure');
-                      nofault := False
-                    end
-                  else
-                    opened := True;
-                end;
-              PgnGameInit(altpgngame);
-              TimerResetThenStart(tasktimer);
-              index := 0;
-              while nofault and (index < limit) do
-                begin
-                  PgnGameRandom(altpgngame, prng);
-                  PgnGameTagSet(altpgngame, ptnround, EncodeLongInt(index + 1));
-                  WriteStr(pgnfile, PgnGameEncode(altpgngame));
-                  if IOResult <> 0 then
-                    begin
-                      IcpUserError(icp, 'I/O fault: Write failure');
-                      nofault := False
-                    end;
-                  Inc(index)
-                end;
-              TimerStop(tasktimer);
-              if optntrts in cpcoptnset then
-                begin
-                  WritePrefix(ofile, 'ts');
-                  WriteStrNL(ofile, EncodeCT(limit, TimerCurrent(tasktimer)))
-                end;
-              PgnGameTerm(altpgngame);
-              if opened then
-                Close(pgnfile)
-            end
+              case oui32 of
+                noneui32type:
+                  IcpUserError(icp, 'Second parameter must be a 32-bit unsigned integer');
+                someui32type:
+                  begin
+                    nofault := True;
+                    opened := False;
+                    limit := ui32;
+                    Assign(pgnfile, t1ptr^.tstr);
+                    if nofault then
+                      begin
+                        Rewrite(pgnfile);
+                        if IOResult <> 0 then
+                          begin
+                            IcpUserError(icp, 'I/O fault: Rewrite failure');
+                            nofault := False
+                          end
+                        else
+                          opened := True;
+                      end;
+                    PgnGameInit(altpgngame);
+                    TimerResetThenStart(tasktimer);
+                    index := 0;
+                    while nofault and (index < limit) do
+                      begin
+                        PgnGameRandom(altpgngame, prng);
+                        PgnGameTagSet(altpgngame, ptnround, EncodeLongInt(index + 1));
+                        WriteStr(pgnfile, PgnGameEncode(altpgngame));
+                        if IOResult <> 0 then
+                          begin
+                            IcpUserError(icp, 'I/O fault: Write failure');
+                            nofault := False
+                          end;
+                        Inc(index)
+                      end;
+                    TimerStop(tasktimer);
+                    if optntrts in cpcoptnset then
+                      begin
+                        WritePrefix(ofile, 'ts');
+                        WriteStrNL(ofile, EncodeCT(limit, TimerCurrent(tasktimer)))
+                      end;
+                    PgnGameTerm(altpgngame);
+                    if opened then
+                      Close(pgnfile)
+                  end;
+                end { case }
+            end;
         end
-  end; { IcpDoCrgstat }
+  end; { IcpDoCrgdump }
 
   procedure IcpDoCrgstat(var icp: icptype);
     var
@@ -13545,21 +13694,26 @@ program CookieCat;
       else
         begin
           tokenptr := ctlist.head^.next;
-          if not IsStringUi32Type(tokenptr^.tstr) then
-            IcpUserError(icp, 'Parameter must be an unsigned integer')
-          else
+          with DecodeUi32Type(tokenptr^.tstr) do
             begin
-              limit := DecodeUi32Type(tokenptr^.tstr);
-              TimerResetThenStart(tasktimer);
-              GtStatsFill(gtstats, prng, limit);
-              TimerStop(tasktimer);
-              WriteStr(ofile, GtStatsEncode(gtstats));
-              if optntrts in cpcoptnset then
-                begin
-                  WritePrefix(ofile, 'ts');
-                  WriteStrNL(ofile, EncodeCT(limit, TimerCurrent(tasktimer)))
-                end
-            end
+              case oui32 of
+                noneui32type:
+                  IcpUserError(icp, 'Parameter must be a 32-bit unsigned integer');
+                someui32type:
+                  begin
+                    limit := ui32;
+                    TimerResetThenStart(tasktimer);
+                    GtStatsFill(gtstats, prng, limit);
+                    TimerStop(tasktimer);
+                    WriteStr(ofile, GtStatsEncode(gtstats));
+                    if optntrts in cpcoptnset then
+                      begin
+                        WritePrefix(ofile, 'ts');
+                        WriteStrNL(ofile, EncodeCT(limit, TimerCurrent(tasktimer)))
+                      end
+                  end;
+              end { case }
+            end;
         end
   end; { IcpDoCrgstat }
 
@@ -13737,39 +13891,97 @@ program CookieCat;
   end; { IcpDoCsfen }
 
   procedure IcpDoCslevfd(var icp: icptype);
+    var
+      tokenptr: tokenptrtype;
   begin
     with icp, cpc do
       if ctlist.ecount <> (1 + 1) then
         IcpUserErrorOneParm(icp)
       else
-        IcpUserError(icp, 'Not yet implemented')
+        begin
+          tokenptr := ctlist.head^.next;
+          with DecodeUi8Type(tokenptr^.tstr) do
+            begin
+              case oui8 of
+                noneui8type:
+                  IcpUserError(icp, 'Parameter must be an 8-bit unsigned integer');
+                someui8type:
+                  SlSetDepth(sscptrvec[0]^.sl, ui8)
+              end { case }
+            end;
+        end
   end; { IcpDoCslevfd }
 
   procedure IcpDoCslevfn(var icp: icptype);
+    var
+      tokenptr: tokenptrtype;
   begin
     with icp, cpc do
       if ctlist.ecount <> (1 + 1) then
         IcpUserErrorOneParm(icp)
       else
-        IcpUserError(icp, 'Not yet implemented')
+        begin
+          tokenptr := ctlist.head^.next;
+          with DecodeUi64Type(tokenptr^.tstr) do
+            begin
+              case oui64 of
+                noneui64type:
+                  IcpUserError(icp, 'Parameter must be a 64-bit unsigned integer');
+                someui64type:
+                  SlSetNodes(sscptrvec[0]^.sl, ui64)
+              end { case }
+            end;
+        end
   end; { IcpDoCslevfn }
 
   procedure IcpDoCslevft(var icp: icptype);
+    var
+      tokenptr: tokenptrtype;
   begin
     with icp, cpc do
       if ctlist.ecount <> (1 + 1) then
         IcpUserErrorOneParm(icp)
       else
-        IcpUserError(icp, 'Not yet implemented')
+        begin
+          tokenptr := ctlist.head^.next;
+          with DecodeUi64Type(tokenptr^.tstr) do
+            begin
+              case oui64 of
+                noneui64type:
+                  IcpUserError(icp, 'Parameter must be a 64-bit unsigned integer');
+                someui64type:
+                  if ui64 >= 0 then
+                    SlSetFtime(sscptrvec[0]^.sl, ui64)
+                  else
+                    IcpUserError(icp, 'Input overflowed')
+              end { case }
+            end;
+        end
   end; { IcpDoCslevft }
 
   procedure IcpDoCslevnt(var icp: icptype);
+    var
+      tokenptr: tokenptrtype;
   begin
     with icp, cpc do
       if ctlist.ecount <> (1 + 1) then
         IcpUserErrorOneParm(icp)
       else
-        IcpUserError(icp, 'Not yet implemented')
+        begin
+          tokenptr := ctlist.head^.next;
+          with DecodeUi64Type(tokenptr^.tstr) do
+            begin
+              case oui64 of
+                noneui64type:
+                  IcpUserError(icp, 'Parameter must be a 64-bit unsigned integer');
+                someui64type:
+                  if ui64 >= 0 then
+                    SlSetMtime(sscptrvec[0]^.sl, ui64)
+                  else
+                    IcpUserError(icp, 'Input overflowed')
+              end { case }
+            end;
+        end
   end; { IcpDoCslevnt }
 
   procedure IcpDoCslevut(var icp: icptype);
@@ -13778,7 +13990,7 @@ program CookieCat;
       if ctlist.ecount <> (1 + 0) then
         IcpUserErrorNoParms(icp)
       else
-        IcpUserError(icp, 'Not yet implemented')
+        SlRmlTimes(sscptrvec[0]^.sl)
   end; { IcpDoCslevut }
 
   procedure IcpDoCstag(var icp: icptype);
