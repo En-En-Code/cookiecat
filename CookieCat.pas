@@ -841,31 +841,32 @@ program CookieCat;
 
     { Xboard commands; must be in ASCII order }
 
-    xcpcaccepted =  0; { Feature request has been approved }
-    xcpceasy     =  1; { Intentional no-op }
-    xcpcforce    =  2; { Set engine to play on neither side; stop clocks }
-    xcpcgo       =  3; { Start searching and eventually make a move }
-    xcpchint     =  4; { Suggest a move but do not play it }
-    xcpclevel    =  5; { <MPS> <BASE> <INC> Set time controls }
-    xcpcnew      =  6; { Reset board, stop clocks, remove search depth caps, set to Black }
-    xcpcnopost   =  7; { Turn off thinking output }
-    xcpcotim     =  8; { <N> Set opponent's clock to N centiseconds }
-    xcpcping     =  9; { <N> Reply with pong <N> }
-    xcpcpost     = 10; { Turn on thinking output }
-    xcpcprotover = 11; { <N> Respond with the feature list }
-    xcpcquit     = 12; { Exit program }
-    xcpcrandom   = 13; { Intentional no-op }
-    xcpcrejected = 14; { Feature request has been rejected }
-    xcpcremove   = 15; { Retreat move pair }
-    xcpcresult   = 16; { <RESULT> [<Comment>] The game has ended }
-    xcpcsd       = 17; { <DEPTH> Limit thinking to DEPTH ply }
-    xcpcsetboard = 18; { <FEN> Set board to FEN }
-    xcpcst       = 19; { <SEC> Set the maximum time to move }
-    xcpctime     = 20; { <N> Set CookieCat's clock to N centiseconds }
-    xcpcundo     = 21; { Retreat move }
-    xcpcxboard   = 22; { Enable xboard mode }
+    xcpcqmark    =  0; { Move now }
+    xcpcaccepted =  1; { Feature request has been approved }
+    xcpceasy     =  2; { Intentional no-op }
+    xcpcforce    =  3; { Set engine to play on neither side; stop clocks }
+    xcpcgo       =  4; { Start searching and eventually make a move }
+    xcpchint     =  5; { Suggest a move but do not play it }
+    xcpclevel    =  6; { <MPS> <BASE> <INC> Set time controls }
+    xcpcnew      =  7; { Reset board, stop clocks, remove search depth caps, set to Black }
+    xcpcnopost   =  8; { Turn off thinking output }
+    xcpcotim     =  9; { <N> Set opponent's clock to N centiseconds }
+    xcpcping     = 10; { <N> Reply with pong <N> }
+    xcpcpost     = 11; { Turn on thinking output }
+    xcpcprotover = 12; { <N> Respond with the feature list }
+    xcpcquit     = 13; { Exit program }
+    xcpcrandom   = 14; { Intentional no-op }
+    xcpcrejected = 15; { Feature request has been rejected }
+    xcpcremove   = 16; { Retreat move pair }
+    xcpcresult   = 17; { <RESULT> [<Comment>] The game has ended }
+    xcpcsd       = 18; { <DEPTH> Limit thinking to DEPTH ply }
+    xcpcsetboard = 19; { <FEN> Set board to FEN }
+    xcpcst       = 20; { <SEC> Set the maximum time to move }
+    xcpctime     = 21; { <N> Set CookieCat's clock to N centiseconds }
+    xcpcundo     = 22; { Retreat move }
+    xcpcxboard   = 23; { Enable xboard mode }
 
-    xcpcmin = xcpcaccepted;
+    xcpcmin = xcpcqmark;
     xcpcmax = xcpcxboard;
     xcpclen = xcpcmax - xcpcmin + 1;
 
@@ -1812,7 +1813,7 @@ program CookieCat;
 
     { Search limiter flavors }
 
-    slftype = (slfdepth, slfnodes, slfftime, slfmtime);
+    slftype = (slfdepth, slfnodes, slfftime, slfmtime, slfinter);
 
     { Search limiter }
 
@@ -1899,6 +1900,7 @@ program CookieCat;
       record
         cpctimer:   timertype;      { Command processing context elapsed time timer }
         cpcoptnset: optnsettype;    { Option vector; copy to ssc on search dispatch }
+        threadcnt:  ui32type;       { Number of active searcher threads }
         prng:       prngtype;       { Pseudorandom number generator }
         ifile:      Text;           { Default text input file }
         ofile:      Text;           { Default text output file }
@@ -1926,6 +1928,8 @@ program CookieCat;
         level: Boolean;   { Level time control flag }
         xcpc:  xcpcxtype  { Command to be processed }
       end;
+
+    xcpptrtype = ^xcptype;
 
     { Interactive command processor commands }
 
@@ -11003,6 +11007,18 @@ program CookieCat;
       end
   end; { SlSetMtime }
 
+  procedure SlRmlInter(var sl: sltype);
+  begin
+    with sl do
+      Exclude(slf, slfinter)
+  end; { SlRmlInter }
+
+  procedure SlSetInter(var sl: sltype);
+  begin
+    with sl do
+      Include(slf, slfinter)
+  end; { SlSetInter }
+
   procedure SlRmlAll(var sl: sltype);
   begin
     with sl do
@@ -12180,6 +12196,11 @@ program CookieCat;
             if iter > 0 then
               with ssc, sl do
                 begin
+                  if slfinter in slf then
+                    begin
+                      SscStop(ssc, stinterrupt);
+                      SlRmlInter(sl)
+                    end;
                   if (slfnodes in slf) and (nodecount >= limitnodes) then
                     SscStop(ssc, stlimitnode);
                   if (nodecount mod 1024) = 0 then
@@ -12687,6 +12708,7 @@ program CookieCat;
 
         TimerResetThenStart(cpctimer);
         cpcoptnset := [];
+        threadcnt := 0;
         PrngRandomize(prng);
         ifile := Input;
         ofile := Output;
@@ -12779,11 +12801,11 @@ program CookieCat;
 
   { ***** Xboard Chess Interface command processor routines ***** }
 
-  procedure XcpUserError(var xcp: xcptype; str: String);
+  procedure XcpUserError(var xcpptr: xcpptrtype; str: String);
     var
       tokenptr: tokenptrtype;
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       begin
         tokenptr := ctlist.head;
         WriteStr(efile, 'Error (' + str + '): ');
@@ -12792,34 +12814,39 @@ program CookieCat;
             WriteStr(efile, tokenptr^.tstr + ' ');
             tokenptr := tokenptr^.next
           end;
-        WriteNl(efile)
+        WriteNL(efile)
       end
   end; { XcpUserError }
 
-  procedure XcpUserErrorNoParms(var xcp: xcptype);
+  procedure XcpUserErrorNoParms(var xcpptr: xcpptrtype);
   begin
-    XcpUserError(xcp, 'too many parameters - expected zero')
+    XcpUserError(xcpptr, 'too many parameters - expected zero')
   end; { XcpUserErrorNoParms }
 
-  procedure XcpUserErrorOneParms(var xcp: xcptype; var count: ecounttype);
+  procedure XcpUserErrorOneParms(var xcpptr: xcpptrtype; var count: ecounttype);
   begin
-    if count < 1 then
-      XcpUserError(xcp, 'too few parameters - expected one')
+    if count < (1 + 1) then
+      XcpUserError(xcpptr, 'too few parameters - expected one')
     else
-      XcpUserError(xcp, 'too many parameters - expected one')
+      XcpUserError(xcpptr, 'too many parameters - expected one')
   end; { XcpUserErrorOneParms }
 
-  procedure XcpUserErrorThreeParms(var xcp: xcptype; var count: ecounttype);
+  procedure XcpUserErrorThreeParms(var xcpptr: xcpptrtype; var count: ecounttype);
   begin
-    if count < 3 then
-      XcpUserError(xcp, 'too few parameters - expected three')
+    if count < (3 + 1) then
+      XcpUserError(xcpptr, 'too few parameters - expected three')
     else
-      XcpUserError(xcp, 'too many parameters - expected three')
+      XcpUserError(xcpptr, 'too many parameters - expected three')
   end; { XcpUserErrorThreeParms }
 
-  procedure XcpReadySet(var xcp: xcptype);
+  procedure XcpUserErrorNotLegalNow(var xcpptr: xcpptrtype);
   begin
-    with xcp, cpc do
+    XcpUserError(xcpptr, 'command not legal now')
+  end; { XcpUserErrorNotAllowedNow }
+
+  procedure XcpReadySet(var xcpptr: xcpptrtype);
+  begin
+    with xcpptr^, cpc do
       begin
         if level then
           SlSetMtime(sscptrvec[0]^.sl, ChessClockRemainingUsec(cpcclock))
@@ -12829,9 +12856,9 @@ program CookieCat;
       end
   end; { XcpReadySet }
 
-  procedure XcpPlayMove(var xcp: xcptype; move: movetype; report: Boolean);
+  procedure XcpPlayMove(var xcpptr: xcpptrtype; move: movetype; report: Boolean);
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       begin
         if report then
           WriteStrNL(ofile, 'move ' + MoveEncode(move));
@@ -12845,39 +12872,58 @@ program CookieCat;
       end;
   end; { XcpPlayMove }
 
-  procedure XcpSearchAndPlay(var xcp: xcptype);
+  function XcpSearchAndPlay(ptr: Pointer): PtrInt;
+    var
+      xcpptr: xcpptrtype;
   begin
-    with xcp, cpc do
+    xcpptr := xcpptrtype(ptr);
+    with xcpptr^, cpc do
       begin
+        InterLockedIncrement(threadcnt);
         SscSelect(sscptrvec[0]^);
-        XcpPlayMove(xcp, sscptrvec[0]^.predvar.usedlist.head^.move, True)
-      end
+        if not exiting then
+          XcpPlayMove(xcpptr, sscptrvec[0]^.predvar.usedlist.head^.move, True);
+        InterLockedDecrement(threadcnt);
+      end;
+    EndThread;
+    XcpSearchAndPlay := 0
   end; { XcpSearchAndPlay }
 
-  procedure XcpUnplayMove(var xcp: xcptype);
+  procedure XcpUnplayMove(var xcpptr: xcpptrtype);
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       begin
         CpcUnplayMove(cpc);
         ChessClockSwitch(cpcclock)
       end
   end; { XcpUnplayMove }
 
-  procedure XcpDoCaccepted(var xcp: xcptype);
+  procedure XcpDoCqmark(var xcpptr: xcpptrtype);
   begin
-    XcpUserError(xcp, 'not yet implemented')
+    with xcpptr^, cpc do
+      begin
+        if ctlist.ecount <> (1 + 0) then
+          XcpUserErrorNoParms(xcpptr)
+        else
+          SlSetInter(sscptrvec[0]^.sl)
+      end
+  end; { XcpDoCqmark }
+
+  procedure XcpDoCaccepted(var xcpptr: xcpptrtype);
+  begin
+   { intentional no-op }
   end; { XcpDoCaccepted }
 
-  procedure XcpDoCeasy(var xcp: xcptype);
+  procedure XcpDoCeasy(var xcpptr: xcpptrtype);
   begin
     { intentional no-op }
   end; { XcpDoCeasy }
 
-  procedure XcpDoCforce(var xcp: xcptype);
+  procedure XcpDoCforce(var xcpptr: xcpptrtype);
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 0) then
-        XcpUserErrorNoParms(xcp)
+        XcpUserErrorNoParms(xcpptr)
       else
         begin
           force := True;
@@ -12885,29 +12931,29 @@ program CookieCat;
         end
   end; { XcpDoCforce }
 
-  procedure XcpDoCgo(var xcp: xcptype);
+  procedure XcpDoCgo(var xcpptr: xcpptrtype);
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 0) then
-        XcpUserErrorNoParms(xcp)
+        XcpUserErrorNoParms(xcpptr)
       else
         if PosHasNoMoves(cpcpos) then
-          XcpUserError(xcp, 'no legal moves')
+          XcpUserError(xcpptr, 'no legal moves')
         else
           begin {TBD}
             force := False;
             ChessClockStart(cpcclock);
-            XcpReadySet(xcp);
-            XcpSearchAndPlay(xcp);
+            XcpReadySet(xcpptr);
+            BeginThread(@XcpSearchAndPlay, xcpptr);
           end
   end; { XcpDoCgo }
 
-  procedure XcpDoChint(var xcp: xcptype);
+  procedure XcpDoChint(var xcpptr: xcpptrtype);
   begin
-    XcpUserError(xcp, 'not yet implemented')
+    XcpUserError(xcpptr, 'not yet implemented')
   end; { XcpDoChint }
 
-  procedure XcpDoClevel(var xcp: xcptype);
+  procedure XcpDoClevel(var xcpptr: xcpptrtype);
     var
       err: Boolean;
       tokenptr: tokenptrtype;
@@ -12984,9 +13030,9 @@ program CookieCat;
     end; { DecodeTimer }
 
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 3) then
-        XcpUserErrorThreeParms(xcp, ctlist.ecount)
+        XcpUserErrorThreeParms(xcpptr, ctlist.ecount)
       else
         begin
           err := False;
@@ -12995,7 +13041,7 @@ program CookieCat;
             case oui16 of
               noneui16type:
                 begin
-                  XcpUserError(xcp, 'expected 16-bit unsigned integer as parameter one');
+                  XcpUserError(xcpptr, 'expected 16-bit unsigned integer as parameter one');
                   err := True
                 end;
               someui16type:
@@ -13008,7 +13054,7 @@ program CookieCat;
                 case osi64 of
                   nonesi64type:
                     begin
-                      XcpUserError(xcp, 'expected valid timer string as parameter two');
+                      XcpUserError(xcpptr, 'expected valid timer string as parameter two');
                       err := True
                     end;
                   somesi64type:
@@ -13021,7 +13067,7 @@ program CookieCat;
               with DecodeUi32Type(tokenptr^.tstr) do
                 case oui32 of
                   noneui32type:
-                    XcpUserError(xcp, 'expected 32-bit unsigned integer as parameter three');
+                    XcpUserError(xcpptr, 'expected 32-bit unsigned integer as parameter three');
                   someui32type:
                     timeinc := 1000000 * ui32;
                 end { case }
@@ -13043,11 +13089,11 @@ program CookieCat;
         end
   end; { XcpDoClevel }
 
-  procedure XcpDoCnew(var xcp: xcptype);
+  procedure XcpDoCnew(var xcpptr: xcpptrtype);
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 0) then
-        XcpUserErrorNoParms(xcp)
+        XcpUserErrorNoParms(xcpptr)
       else
         begin
           CpcNewGame(cpc);
@@ -13057,78 +13103,78 @@ program CookieCat;
         end
   end; { XcpDoCnew }
 
-  procedure XcpDoCnopost(var xcp: xcptype);
+  procedure XcpDoCnopost(var xcpptr: xcpptrtype);
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 0) then
-        XcpUserErrorNoParms(xcp)
+        XcpUserErrorNoParms(xcpptr)
       else
         cpcoptnset := [];
   end; { XcpDoCnopost }
 
-  procedure XcpDoCotim(var xcp: xcptype);
+  procedure XcpDoCotim(var xcpptr: xcpptrtype);
     var
       tokenptr: tokenptrtype;
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 1) then
-        XcpUserErrorOneParms(xcp, ctlist.ecount)
+        XcpUserErrorOneParms(xcpptr, ctlist.ecount)
       else
         begin
           tokenptr := ctlist.head^.next;
           with DecodeUi32Type(tokenptr^.tstr) do
             case oui32 of
               noneui32type:
-                XcpUserError(xcp, 'excepted 32-bit decimal number');
+                XcpUserError(xcpptr, 'excepted 32-bit decimal number');
               someui32type:
                 ChessClockSetTime(cpcclock, cpcpos.good, (ui32 * 10000));
             end { case }
         end
   end; { XcpDoCotim }
 
-  procedure XcpDoCping(var xcp: xcptype);
+  procedure XcpDoCping(var xcpptr: xcpptrtype);
     var
       tokenptr: tokenptrtype;
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 1) then
-        XcpUserErrorOneParms(xcp, ctlist.ecount)
+        XcpUserErrorOneParms(xcpptr, ctlist.ecount)
       else
         begin
           tokenptr := ctlist.head^.next;
           with DecodeUi64Type(tokenptr^.tstr) do
             case oui64 of
               noneui64type:
-                XcpUserError(xcp, 'excepted decimal number');
+                XcpUserError(xcpptr, 'excepted decimal number');
               someui64type:
                 WriteStrNL(ofile, 'pong ' + tokenptr^.tstr);
             end { case }
         end
   end; { XcpDoCping }
 
-  procedure XcpDoCpost(var xcp: xcptype);
+  procedure XcpDoCpost(var xcpptr: xcpptrtype);
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 0) then
-        XcpUserErrorNoParms(xcp)
+        XcpUserErrorNoParms(xcpptr)
       else
         cpcoptnset := [optntrpv];
   end; { XcpDoCpost }
 
-  procedure XcpDoCprotover(var xcp: xcptype);
+  procedure XcpDoCprotover(var xcpptr: xcpptrtype);
     var
       tokenptr: tokenptrtype;
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 1) then
-        XcpUserErrorOneParms(xcp, ctlist.ecount)
+        XcpUserErrorOneParms(xcpptr, ctlist.ecount)
       else
         begin
           tokenptr := ctlist.head^.next;
           with DecodeUi64Type(tokenptr^.tstr) do
             case oui64 of
               noneui64type:
-                XcpUserError(xcp, 'excepted decimal number');
+                XcpUserError(xcpptr, 'excepted decimal number');
               someui64type:
                 begin
                   WriteStr(ofile, 'feature done=0 ping=1 setboard=1 san=1 time=1 ');
@@ -13138,75 +13184,91 @@ program CookieCat;
         end
   end; { XcpDoCprotover }
 
-  procedure XcpDoCquit(var xcp: xcptype);
+  procedure XcpDoCquit(var xcpptr: xcpptrtype);
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       begin
         if ctlist.ecount <> (1 + 0) then
-          XcpUserErrorNoParms(xcp)
+          XcpUserErrorNoParms(xcpptr)
         else
-          exiting := True
+          begin
+            exiting := True;
+            SlSetInter(sscptrvec[0]^.sl)
+          end
       end
   end; { XcpDoCquit }
 
-  procedure XcpDoCrandom(var xcp: xcptype);
+  procedure XcpDoCrandom(var xcpptr: xcpptrtype);
   begin
     { intentional no-op }
   end; { XcpDoCrandom }
 
-  procedure XcpDoCrejected(var xcp: xcptype);
+  procedure XcpDoCrejected(var xcpptr: xcpptrtype);
+    var
+      tokenptr: tokenptrtype;
   begin
-    XcpUserError(xcp, 'not yet implemented')
+    with xcpptr^, cpc do
+      if ctlist.ecount <> (1 + 1) then
+        XcpUserErrorOneParms(xcpptr, ctlist.ecount)
+      else
+        begin
+          tokenptr := ctlist.head^.next;
+          if tokenptr^.tstr = 'san' then
+            begin
+              XcpUserError(xcpptr, 'SAN feature required for CookieCat');
+              exiting := True
+            end
+        end
   end; { XcpDoCrejected }
 
-  procedure XcpDoCremove(var xcp: xcptype);
+  procedure XcpDoCremove(var xcpptr: xcpptrtype);
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 0) then
-        XcpUserErrorNoParms(xcp)
+        XcpUserErrorNoParms(xcpptr)
       else
         if cpcpos.usedspevlist.ecount < 2 then
-          XcpUserError(xcp, 'no move pair to retract')
+          XcpUserError(xcpptr, 'no move pair to retract')
         else
           begin
-            XcpUnplayMove(xcp);
-            XcpUnplayMove(xcp)
+            XcpUnplayMove(xcpptr);
+            XcpUnplayMove(xcpptr)
           end
   end; { XcpDoCremove }
 
-  procedure XcpDoCresult(var xcp: xcptype);
+  procedure XcpDoCresult(var xcpptr: xcpptrtype);
   begin
     { intentional no-op }
   end; { XcpDoCresult }
 
-  procedure XcpDoCsd(var xcp: xcptype);
+  procedure XcpDoCsd(var xcpptr: xcpptrtype);
     var
       tokenptr: tokenptrtype;
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 1) then
-        XcpUserErrorOneParms(xcp, ctlist.ecount)
+        XcpUserErrorOneParms(xcpptr, ctlist.ecount)
       else
         begin
           tokenptr := ctlist.head^.next;
           with DecodeUi8Type(tokenptr^.tstr) do
             case oui8 of
               noneui8type:
-                XcpUserError(xcp, 'excepted 8-bit decimal number');
+                XcpUserError(xcpptr, 'excepted 8-bit decimal number');
               someui8type:
                 SlSetDepth(sscptrvec[0]^.sl, ui8)
             end { case }
         end
   end; { XcpDoCsd }
 
-  procedure XcpDoCsetboard(var xcp: xcptype);
+  procedure XcpDoCsetboard(var xcpptr: xcpptrtype);
     var
       fenstr: String;
       tokenptr: tokenptrtype;
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 6) then
-        xcpUserError(xcp, 'expected exactly six parameters')
+        xcpUserError(xcpptr, 'expected exactly six parameters')
       else
         begin
           fenstr := '';
@@ -13217,99 +13279,111 @@ program CookieCat;
               tokenptr := tokenptr^.next
             end;
           if not PosDecode(cpcpos, fenstr) then
-            XcpUserError(xcp, 'invalid FEN data')
+            XcpUserError(xcpptr, 'invalid FEN data')
           else
             CpcSnycPgnGame(cpc)
         end
   end; { XcpDoCsetboard }
 
-  procedure XcpDoCst(var xcp: xcptype);
+  procedure XcpDoCst(var xcpptr: xcpptrtype);
     var
       tokenptr: tokenptrtype;
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 1) then
-        XcpUserErrorOneParms(xcp, ctlist.ecount)
+        XcpUserErrorOneParms(xcpptr, ctlist.ecount)
       else
         begin
           tokenptr := ctlist.head^.next;
           with DecodeUi32Type(tokenptr^.tstr) do
             case oui32 of
               noneui32type:
-                XcpUserError(xcp, 'excepted 32-bit decimal number');
+                XcpUserError(xcpptr, 'excepted 32-bit decimal number');
               someui32type:
                 SlSetFtime(sscptrvec[0]^.sl, (ui32 * 1000000) - 2000)
             end { case }
         end
   end; { XcpDoCst }
 
-  procedure XcpDoCtime(var xcp: xcptype);
+  procedure XcpDoCtime(var xcpptr: xcpptrtype);
     var
       tokenptr: tokenptrtype;
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 1) then
-        XcpUserErrorOneParms(xcp, ctlist.ecount)
+        XcpUserErrorOneParms(xcpptr, ctlist.ecount)
       else
         begin
           tokenptr := ctlist.head^.next;
           with DecodeUi32Type(tokenptr^.tstr) do
             case oui32 of
               noneui32type:
-                XcpUserError(xcp, 'excepted 32-bit decimal number');
+                XcpUserError(xcpptr, 'excepted 32-bit decimal number');
               someui32type:
                 ChessClockSetTime(cpcclock, cpcpos.evil, (ui32 * 10000));
             end { case }
         end
   end; { XcpDoCtime }
 
-  procedure XcpDoCundo(var xcp: xcptype);
+  procedure XcpDoCundo(var xcpptr: xcpptrtype);
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       if ctlist.ecount <> (1 + 0) then
-        XcpUserErrorNoParms(xcp)
+        XcpUserErrorNoParms(xcpptr)
       else
         if cpcpos.usedspevlist.ecount < 1 then
-          XcpUserError(xcp, 'no move to retract')
+          XcpUserError(xcpptr, 'no move to retract')
         else
-          XcpUnplayMove(xcp)
+          XcpUnplayMove(xcpptr)
   end; { XcpDoCundo }
 
-  procedure XcpDoCxboard(var xcp: xcptype);
+  procedure XcpDoCxboard(var xcpptr: xcpptrtype);
   begin
-    XcpUserError(xcp, 'engine already in xboard mode')
+    XcpUserError(xcpptr, 'engine already in xboard mode')
   end; { XcpDoCxboard }
 
-  procedure XcpDispatch(var xcp: xcptype);
+  procedure XcpDispatch(var xcpptr: xcpptrtype);
   begin
-    case xcp.xcpc of
-      xcpcaccepted: XcpDoCaccepted(xcp);
-      xcpceasy:     XcpDoCeasy(xcp);
-      xcpcforce:    XcpDoCforce(xcp);
-      xcpcgo:       XcpDoCgo(xcp);
-      xcpchint:     XcpDoChint(xcp);
-      xcpclevel:    XcpDoClevel(xcp);
-      xcpcnew:      XcpDoCnew(xcp);
-      xcpcnopost:   XcpDoCnopost(xcp);
-      xcpcotim:     XcpDoCotim(xcp);
-      xcpcping:     XcpDoCping(xcp);
-      xcpcpost:     XcpDoCpost(xcp);
-      xcpcprotover: XcpDoCprotover(xcp);
-      xcpcquit:     XcpDoCquit(xcp);
-      xcpcrandom:   XcpDoCrandom(xcp);
-      xcpcrejected: XcpDoCrejected(xcp);
-      xcpcremove:   XcpDoCremove(xcp);
-      xcpcresult:   XcpDoCresult(xcp);
-      xcpcsd:       XcpDoCsd(xcp);
-      xcpcsetboard: XcpDoCsetboard(xcp);
-      xcpcst:       XcpDoCst(xcp);
-      xcpctime:     XcpDoCtime(xcp);
-      xcpcundo:     XcpDoCundo(xcp);
-      xcpcxboard:   XcpDoCxboard(xcp)
-    end { case }
+    if xcpptr^.cpc.threadcnt = 0 then
+      case xcpptr^.xcpc of
+        xcpcaccepted: XcpDoCaccepted(xcpptr);
+        xcpceasy:     XcpDoCeasy(xcpptr);
+        xcpcforce:    XcpDoCforce(xcpptr);
+        xcpcgo:       XcpDoCgo(xcpptr);
+        xcpchint:     XcpDoChint(xcpptr);
+        xcpclevel:    XcpDoClevel(xcpptr);
+        xcpcnew:      XcpDoCnew(xcpptr);
+        xcpcnopost:   XcpDoCnopost(xcpptr);
+        xcpcotim:     XcpDoCotim(xcpptr);
+        xcpcping:     XcpDoCping(xcpptr);
+        xcpcpost:     XcpDoCpost(xcpptr);
+        xcpcprotover: XcpDoCprotover(xcpptr);
+        xcpcquit:     XcpDoCquit(xcpptr);
+        xcpcrandom:   XcpDoCrandom(xcpptr);
+        xcpcrejected: XcpDoCrejected(xcpptr);
+        xcpcremove:   XcpDoCremove(xcpptr);
+        xcpcresult:   XcpDoCresult(xcpptr);
+        xcpcsd:       XcpDoCsd(xcpptr);
+        xcpcsetboard: XcpDoCsetboard(xcpptr);
+        xcpcst:       XcpDoCst(xcpptr);
+        xcpctime:     XcpDoCtime(xcpptr);
+        xcpcundo:     XcpDoCundo(xcpptr);
+        xcpcxboard:   XcpDoCxboard(xcpptr)
+      end { case }
+    else
+      case xcpptr^.xcpc of
+        xcpcqmark:    XcpDoCqmark(xcpptr);
+        xcpceasy:     XcpDoCeasy(xcpptr);
+        xcpcforce:    XcpDoCforce(xcpptr);
+        xcpcnopost:   XcpDoCnopost(xcpptr);
+        xcpcping:     XcpDoCping(xcpptr);
+        xcpcpost:     XcpDoCpost(xcpptr);
+        xcpcquit:     XcpDoCquit(xcpptr);
+        else          XcpUserErrorNotLegalNow(xcpptr)
+      end { case }
   end; { XcpDispatch }
 
-  procedure XcpHandleCommand(var xcp: xcptype);
+  procedure XcpHandleCommand(var xcpptr: xcpptrtype);
     var
       str: String;
       tokenptr: tokenptrtype;
@@ -13336,11 +13410,10 @@ program CookieCat;
     end; { MatchXcpCommand }
 
   begin
-    with xcp, cpc do
+    with xcpptr^, cpc do
       begin
 
         { Get a list of input tokens; this is the only console read/readln statement }
-
         ReadLn(ifile, str);
         TokenListReset(ctlist);
         TokenListBuild(ctlist, str);
@@ -13354,37 +13427,44 @@ program CookieCat;
 
             xcpc := MatchXcpCommand(ctlist.head^.tstr);
             if xcpc <> xcpcnil then
-              XcpDispatch(xcp)
+              XcpDispatch(xcpptr)
             else
 
               { Try user move sequence second }
 
               if not PosIsValidMoveTokenList(cpcpos, ctlist) then
-                XcpUserError(xcp, 'unknown command')
+                XcpUserError(xcpptr, 'unknown command')
               else
                 if ctlist.ecount <> 1 then
-                  XcpUserError(xcp, 'too many moves - expected one')
+                  XcpUserError(xcpptr, 'too many moves - expected one')
                 else
-                  begin
-                    tokenptr := ctlist.head;
-                    PosMoveDecode(cpcpos, move, tokenptr^.tstr);
-                    XcpPlayMove(xcp, move, False);
-                    if not force and not PosHasNoMoves(cpcpos) then
-                      begin
-                        XcpReadySet(xcp);
-                        XcpSearchAndPlay(xcp);
-                      end
-                  end
+                  if threadcnt <> 0 then
+                    XcpUserErrorNotLegalNow(xcpptr)
+                  else
+                    begin
+                      tokenptr := ctlist.head;
+                      PosMoveDecode(cpcpos, move, tokenptr^.tstr);
+                      XcpPlayMove(xcpptr, move, False);
+                      if not force and not PosHasNoMoves(cpcpos) then
+                        begin
+                          XcpReadySet(xcpptr);
+                          BeginThread(@XcpSearchAndPlay, xcpptr);
+                        end
+                    end
           end
       end
   end; { XcpHandleCommand }
 
-  procedure XcpCycle(var xcp: xcptype);
+  procedure XcpCycle(var xcpptr: xcpptrtype);
   begin
-    with xcp, cpc do
-      repeat
-        XcpHandleCommand(xcp)
-      until exiting
+    with xcpptr^, cpc do
+      begin
+        repeat
+          XcpHandleCommand(xcpptr)
+        until exiting;
+        while threadcnt <> 0 do
+          RatNap
+      end
   end; { XcpCycle }
 
   procedure XcpInit(var xcp: xcptype);
@@ -14813,7 +14893,7 @@ program CookieCat;
           { Allocate and initialize the command processor }
 
           New(xcpptr);
-          xcpptr^.cpc := icp.cpc;
+          xcpptr^.cpc := cpc;
           CpcSetXboard(xcpptr^.cpc);
 
           { Report ready }
@@ -14822,7 +14902,7 @@ program CookieCat;
 
           { Process the interactive command stream }
 
-          XcpCycle(xcpptr^);
+          XcpCycle(xcpptr);
 
           { Terminate and deallocate the command processor }
 
@@ -15658,7 +15738,7 @@ program CookieCat;
         stnames[stallcertain]   := 'All ply zero moves have certain scores';
         stnames[stforcedlose]   := 'Forced lose detected';
         stnames[stforcedmate]   := 'Forced mate detected';
-        stnames[stinterrupt]    := 'User ended search';
+        stnames[stinterrupt]    := 'End search command received';
         stnames[stlimitdepth]   := 'Depth limit encountered';
         stnames[stlimitnode]    := 'Node count limit encountered';
         stnames[stlimittime]    := 'Time limit encountered';
@@ -16825,6 +16905,7 @@ program CookieCat;
 
       procedure InitializeXcpCommandStrings;
       begin
+        xcpcnames[xcpcqmark]    := '?';
         xcpcnames[xcpcaccepted] := 'accepted';
         xcpcnames[xcpceasy]     := 'easy';
         xcpcnames[xcpcforce]    := 'force';
