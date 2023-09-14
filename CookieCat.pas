@@ -774,25 +774,25 @@ program CookieCat;
 
     { Evaluation transposition table items }
 
-    ttevalslog = 22;               { Log2 of entry count of the evaluation transposition table }
+    ttevalslog = 20;               { Log2 of entry count of the evaluation transposition table }
     ttevalslen = 1 shl ttevalslog; { Entry count of the evaluation transposition table }
     ttevalmask = ttevalslen - 1;   { Index mask for the evaluation transposition table }
 
     { Main transposition table items }
 
-    ttmainslog = 22;               { Log2 of entry count of the main transposition table }
+    ttmainslog = 20;               { Log2 of entry count of the main transposition table }
     ttmainslen = 1 shl ttmainslog; { Entry count of the main transposition table }
     ttmainmask = ttmainslen - 1;   { Index mask for the main transposition table }
 
     { Pawn transposition table items }
 
-    ttpawnslog = 18;               { Log2 of entry count of the pawn transposition table }
+    ttpawnslog = 16;               { Log2 of entry count of the pawn transposition table }
     ttpawnslen = 1 shl ttpawnslog; { Entry count of the pawn transposition table }
     ttpawnmask = ttpawnslen - 1;   { Index mask for the pawn transposition table }
 
     { Tablebase transposition table items }
 
-    tttbasslog = 16;               { Log2 of entry count of the tablebase transposition table }
+    tttbasslog = 14;               { Log2 of entry count of the tablebase transposition table }
     tttbasslen = 1 shl tttbasslog; { Entry count of the tablebase transposition table }
     tttbasmask = tttbasslen - 1;   { Index mask for the tablebase transposition table }
 
