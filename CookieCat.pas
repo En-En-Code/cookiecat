@@ -2743,12 +2743,33 @@ program CookieCat;
 
   { ***** Chess clock routines ***** }
 
+  function ChessClockIsRunning(var chessclock: chessclocktype): Boolean;
+  begin
+    with chessclock do
+      ChessClockIsRunning := timervec[colorw].running or timervec[colorb].running
+  end; { ChessClockIsRunning }
+
+  procedure ChessClockStart(var chessclock: chessclocktype);
+  begin
+    with chessclock do
+      if not ChessClockIsRunning(chessclock) then
+        TimerStart(timervec[good])
+  end; { ChessClockStart }
+
+  procedure ChessClockStop(var chessclock: chessclocktype);
+  begin
+    with chessclock do
+      if ChessClockIsRunning(chessclock) then
+        TimerStop(timervec[good])
+  end; { ChessClockStop }
+
   procedure ChessClockReset(var chessclock: chessclocktype);
     var
       color: colorrtype;
   begin
     with chessclock do
       begin
+        ChessClockStop(chessclock);
         for color := colorrmin to colorrmax do
           with timervec[color] do
             begin
@@ -2780,12 +2801,6 @@ program CookieCat;
       TimerSet(timervec[color], time)
   end; { ChessClockSetTime }
 
-  function ChessClockIsRunning(var chessclock: chessclocktype): Boolean;
-  begin
-    with chessclock do
-      ChessClockIsRunning := timervec[colorw].running or timervec[colorb].running
-  end; { ChessClockIsRunning }
-
   function ChessClockIsFlagged(var chessclock: chessclocktype): Boolean;
   begin
     with chessclock do
@@ -2794,20 +2809,6 @@ program CookieCat;
         ChessClockIsFlagged := (timervec[colorw].current = 0) or (timervec[colorb].current = 0)
       end
   end; { ChessClockIsFlagged }
-
-  procedure ChessClockStart(var chessclock: chessclocktype);
-  begin
-    with chessclock do
-      if not ChessClockIsRunning(chessclock) then
-        TimerStart(timervec[good])
-  end; { ChessClockStart }
-
-  procedure ChessClockStop(var chessclock: chessclocktype);
-  begin
-    with chessclock do
-      if ChessClockIsRunning(chessclock) then
-        TimerStop(timervec[good])
-  end; { ChessClockStop }
 
   procedure ChessClockPunch(var chessclock: chessclocktype);
   begin
@@ -12201,7 +12202,7 @@ program CookieCat;
                         if TimerCurrent(ssctimer) >= limitftime then
                           SscStop(ssc, stlimittime);
                       if slfmtime in slf then
-                        if TimerCurrent(ssctimer) >= (limitmtime div 20) then
+                        if TimerCurrent(ssctimer) >= limitmtime then
                           SscStop(ssc, stlimittime)
                     end
                 end
@@ -12684,6 +12685,7 @@ program CookieCat;
       begin
         PosLoadInitialArray(cpcpos);
         PgnGameLoadFromPos(pgngame, cpcpos);
+        ChessClockReset(cpcclock);
         SscTTReset(sscptrvec[0]^) {TBD}
       end
   end; { CpcNewGame }
@@ -12709,7 +12711,6 @@ program CookieCat;
         TokenListInit(ctlist);
         PosInit(cpcpos);
         PgnGameInit(pgngame);
-        ChessClockReset(cpcclock);
 
         { Initialize selection/search contexts }
 
@@ -12841,7 +12842,7 @@ program CookieCat;
     with xcpptr^, cpc do
       begin
         if level then
-          SlSetMtime(sscptrvec[0]^.sl, ChessClockRemainingUsec(cpcclock))
+          SlSetMtime(sscptrvec[0]^.sl, (ChessClockRemainingUsec(cpcclock) div 20))
         else
           SlRmlMtime(sscptrvec[0]^.sl);
         SscReadySet(sscptrvec[0]^, cpcoptnset, cpcpos, mgmhyperdeluxe)
@@ -12866,15 +12867,17 @@ program CookieCat;
 
   function XcpSearchAndPlay(ptr: Pointer): PtrInt;
     var
+      ssc: ssctype;
       xcpptr: xcpptrtype;
   begin
     xcpptr := xcpptrtype(ptr);
     with xcpptr^, cpc do
       begin
         InterLockedIncrement(threadcnt);
-        SscSelect(sscptrvec[0]^);
+        ssc := sscptrvec[0]^;
+        SscSelect(ssc);
         if not exiting then
-          XcpPlayMove(xcpptr, sscptrvec[0]^.predvar.usedlist.head^.move, True);
+          XcpPlayMove(xcpptr, ssc.predvar.usedlist.head^.move, True);
         InterLockedDecrement(threadcnt)
       end;
     EndThread;
@@ -13156,8 +13159,8 @@ program CookieCat;
           with DecodeUi64Type(tokenptr^.tstr) do
             if oui64 = someui64type then
               begin
-                WriteStr(ofile, 'feature done=0 ping=1 setboard=1 san=1 time=1 ');
-                WriteStrNL(ofile, 'draw=0 sigint=0 sigterm=0 reuse=1 colors=0 done=1')
+                WriteStr(ofile, 'feature done=0 myname="' + progvers + '" ping=1 setboard=1 ');
+                WriteStrNL(ofile, 'san=1 time=1 draw=0 sigint=0 sigterm=0 reuse=1 colors=0 done=1')
               end
             else
               XcpUserError(xcpptr, 'excepted decimal number')
@@ -13218,7 +13221,8 @@ program CookieCat;
 
   procedure XcpDoCresult(var xcpptr: xcpptrtype);
   begin
-    { intentional no-op }
+    with xcpptr^, cpc do
+      ChessClockStop(cpcclock)
   end; { XcpDoCresult }
 
   procedure XcpDoCsd(var xcpptr: xcpptrtype);
